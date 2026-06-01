@@ -1,0 +1,18 @@
+# Core analysis stack used by the notebook and app.
+pandas>=1.5
+numpy>=1.24
+seaborn>=0.12
+matplotlib>=3.6
+
+# Notebook runtime + interactive widgets (MongoDB CRUD UI in the notebook).
+jupyter>=1.0
+ipykernel>=6.19
+ipywidgets>=8.0
+
+# NoSQL layer. pymongo talks to a real MongoDB instance if one is running;
+# mongomock provides an in-memory stand-in so the notebook and app run with
+# no live database daemon (CI-friendly).
+pymongo>=4.0
+mongomock>=4.1
+
+# sqlite3 ships with the Python standard library -- no install required.
