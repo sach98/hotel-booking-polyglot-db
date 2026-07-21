@@ -32,6 +32,11 @@ This project implements a **Polyglot Persistence Architecture** using SQLite (3N
   stay. A booking holding no rooms bills 0, not NULL.
 - **Auditability Rule:** Invoices must reference a valid `BookingID` and store generated timestamps.
 
+### BR-03: Polyglot Document Store (MongoDB Catalogue)
+- **Use Case:** Hotel catalogue browse & search.
+- **Document Model:** Flexible JSON schema holding hotel attributes, location tags, star ratings, and nested facility lists.
+- **Fallback Rule:** Must support `mongomock` in-memory fallback for local automated testing when live MongoDB daemon is unavailable.
+
 ### BR-04: Data Integrity Constraints Enforced In The Schema
 These rules are enforced by the database, not by application code, so they hold
 regardless of which client writes the row.
@@ -43,11 +48,6 @@ regardless of which client writes the row.
 - **Review Cardinality Rule:** at most one review per booking (`UNIQUE` on
   `Feedback.BookingBookingID`). A review with no booking reference is
   unattributed rather than duplicate, so NULL may repeat.
-
-### BR-03: Polyglot Document Store (MongoDB Catalogue)
-- **Use Case:** Hotel catalogue browse & search.
-- **Document Model:** Flexible JSON schema holding hotel attributes, location tags, star ratings, and nested facility lists.
-- **Fallback Rule:** Must support `mongomock` in-memory fallback for local automated testing when live MongoDB daemon is unavailable.
 
 ---
 

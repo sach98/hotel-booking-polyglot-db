@@ -248,8 +248,10 @@ WITH RECURSIVE seq(n) AS (
 -- product exceeds the 64-bit signed range, SQLite promotes it to a float, and
 -- the low-order digits every field reads become rounding noise.
 SELECT n,
+-- >>> BEGIN HASH >>>
        (((n * 2654435761 + 1013904223) % 1000003) * ((n * 40503    + 12345) % 999983)) % 4294967291,
        (((n * 1103515245 + 12345)      % 1000033) * ((n * 22695477 + 1)     % 999979)) % 4294967291
+-- <<< END HASH <<<
   FROM seq;
 
 -- Customers 1011..1250.

@@ -14,6 +14,7 @@ statement to the non-aggregate form turns this suite red.
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 import sys
 import unittest
@@ -28,6 +29,9 @@ SEED_SQL = os.path.join(PROJECT_ROOT, "sql", "seed.sql")
 
 BEGIN_MARKER = "-- >>> BEGIN DERIVATION >>>"
 END_MARKER = "-- <<< END DERIVATION <<<"
+
+HASH_BEGIN_MARKER = "-- >>> BEGIN HASH >>>"
+HASH_END_MARKER = "-- <<< END HASH <<<"
 
 
 def read_seed() -> str:
@@ -44,6 +48,29 @@ def read_derivation_sql() -> str:
     if not statements:
         raise AssertionError("derivation block in sql/seed.sql is empty")
     return statements
+
+
+def read_hash_expressions() -> list:
+    """Pull the two generated-row hash expressions out of sql/seed.sql."""
+    seed = read_seed()
+    start = seed.index(HASH_BEGIN_MARKER) + len(HASH_BEGIN_MARKER)
+    end = seed.index(HASH_END_MARKER)
+    block = seed[start:end].strip()
+    expressions = [line.strip().rstrip(",") for line in block.splitlines() if line.strip()]
+    if len(expressions) != 2:
+        raise AssertionError(
+            "expected 2 hash expressions between the markers in sql/seed.sql, found "
+            + str(len(expressions))
+        )
+    return expressions
+
+
+def read_generated_row_count() -> int:
+    """Pull the recursive seq bound the seed generates rows with."""
+    match = re.search(r"SELECT n \+ 1 FROM seq WHERE n < (\d+)", read_seed())
+    if match is None:
+        raise AssertionError("could not find the generator bound in sql/seed.sql")
+    return int(match.group(1))
 
 
 def build_db(path: str) -> sqlite3.Connection:
@@ -444,14 +471,17 @@ class ReproducibilityTests(unittest.TestCase):
 
     def test_generated_hashes_never_overflow_into_floats(self):
         """A 64-bit overflow silently turns the hash into a float and destroys
-        the low-order digits that every generated field reads."""
+        the low-order digits that every generated field reads. Both expressions
+        and the row bound are read out of sql/seed.sql, so reverting the seed to
+        the unreduced product turns this test red instead of leaving it asserting
+        against a private copy."""
+        first, second = read_hash_expressions()
+        bound = read_generated_row_count()
         conn = sqlite3.connect(":memory:")
         try:
-            types = conn.execute("""
-                WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 240)
-                SELECT DISTINCT
-                       typeof((((n * 2654435761 + 1013904223) % 1000003) * ((n * 40503    + 12345) % 999983)) % 4294967291),
-                       typeof((((n * 1103515245 + 12345)      % 1000033) * ((n * 22695477 + 1)     % 999979)) % 4294967291)
+            types = conn.execute(f"""
+                WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < {bound})
+                SELECT DISTINCT typeof({first}), typeof({second})
                   FROM seq
             """).fetchall()
             self.assertEqual(types, [("integer", "integer")])
