@@ -1,18 +1,23 @@
-# Core analysis stack used by the notebook and app.
-pandas>=1.5
-numpy>=1.24
-seaborn>=0.12
-matplotlib>=3.6
+# Pinned to the exact versions this project was last built and tested against
+# (Python 3.11.1, macOS). Regenerate after upgrading with:
+#     pip list --format=freeze
 
-# Notebook runtime + interactive widgets (MongoDB CRUD UI in the notebook).
-jupyter>=1.0
-ipykernel>=6.19
-ipywidgets>=8.0
+# Core analysis stack used by the notebook, analysis.py and the test suite.
+pandas==2.3.3
+numpy==1.26.4
+seaborn==0.12.2
+matplotlib==3.6.2
+
+# Notebook runtime + interactive widgets.
+jupyter==1.0.0
+ipykernel==6.19.4
+ipywidgets==8.0.4
 
 # NoSQL layer. pymongo talks to a real MongoDB instance if one is running;
 # mongomock provides an in-memory stand-in so the notebook and app run with
 # no live database daemon (CI-friendly).
-pymongo>=4.0
-mongomock>=4.1
+pymongo==4.17.0
+mongomock==4.3.0
 
-# sqlite3 ships with the Python standard library -- no install required.
+# sqlite3 and unittest ship with the Python standard library. The test suite
+# needs no extra install: python -m unittest discover -s tests -t .

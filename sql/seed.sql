@@ -2,13 +2,20 @@
 -- MAGS Hotel Booking Platform - Relational seed script (SQLite)
 -- -----------------------------------------------------------------------------
 -- Builds the `hotel.db` SQLite database from scratch: 6-table 3NF schema plus
--- a small synthetic sample dataset, so the project is fully reproducible with
+-- a synthetic sample dataset, so the project is fully reproducible with
 -- no manual data entry.
 --
 --   Usage:  sqlite3 data/hotel.db < sql/seed.sql
 --
 -- All data below is fictional and generated for demonstration only.
 -- Foreign keys are enabled so the sample rows are guaranteed referentially valid.
+--
+-- The dataset is in two parts:
+--   1. Ten hand-written rows per table, kept readable for inspection.
+--   2. A generated block (240 further customers and bookings) so the analytics
+--      have enough volume to say something. Every generated value is a pure
+--      arithmetic function of the row number, so re-running this script always
+--      produces exactly the same database. See "Generated sample data" below.
 -- =============================================================================
 
 PRAGMA foreign_keys = ON;
@@ -54,6 +61,10 @@ CREATE TABLE Booking (
     Meal               INTEGER CHECK (Meal IN (0, 1)),
     CustomerCustomerID INTEGER NOT NULL,
     HotelHotelID       INTEGER NOT NULL,
+    -- A stay must end after it starts. ISO 8601 text sorts chronologically, so
+    -- a plain string comparison is a correct date comparison here. Without this
+    -- the derived Duration can go negative and the invoice turns into a credit.
+    CHECK (Checkout_date > Arrival_date),
     FOREIGN KEY (CustomerCustomerID) REFERENCES Customer (CustomerID),
     FOREIGN KEY (HotelHotelID)       REFERENCES Hotel    (HotelID)
 );
@@ -70,8 +81,9 @@ CREATE TABLE Room (
 
 CREATE TABLE Invoice (
     InvoiceID        INTEGER PRIMARY KEY,
-    BookingBookingID INTEGER NOT NULL,
-    Amount           INTEGER,                       -- derived: Duration * Price
+    -- One invoice per booking (the 1:1 cardinality the README documents).
+    BookingBookingID INTEGER NOT NULL UNIQUE,
+    Amount           INTEGER,                       -- derived: Duration * total nightly price
     Discount         INTEGER,
     Date             TEXT,
     Time             TEXT,
@@ -80,7 +92,9 @@ CREATE TABLE Invoice (
 
 CREATE TABLE Feedback (
     FeedbackID       INTEGER PRIMARY KEY,
-    BookingBookingID INTEGER,
+    -- One review per booking. NULL is still allowed more than once, which is
+    -- correct: an unattributed review is not a duplicate review.
+    BookingBookingID INTEGER UNIQUE,
     Feedback_text    TEXT,
     Rating           INTEGER CHECK (Rating BETWEEN 1 AND 5),
     HotelHotelID     INTEGER NOT NULL,
@@ -89,7 +103,7 @@ CREATE TABLE Feedback (
 );
 
 -- -----------------------------------------------------------------------------
--- Sample data (synthetic). Insert parents first, children after.
+-- Hand-written sample data (synthetic). Insert parents first, children after.
 -- -----------------------------------------------------------------------------
 
 INSERT INTO Hotel (HotelID, Name, Contact, Address, Postal_code, Parking_space) VALUES
@@ -165,19 +179,201 @@ INSERT INTO Feedback (FeedbackID, BookingBookingID, Feedback_text, Rating, Hotel
     (109, 1000009, 'Bathroom was small but a decent studio overall.', 4, 4009),
     (110, 1000010, 'The single room was barely big enough to walk in.', 1, 4010);
 
+-- =============================================================================
+-- Generated sample data (synthetic, deterministic)
+-- -----------------------------------------------------------------------------
+-- Ten rows per table is not enough to analyse: every hotel has exactly one
+-- booking, so "bookings per hotel" is 1 everywhere and any average is a
+-- single observation. This block adds 240 more customers and bookings
+-- (250 bookings in total) so the analytics in `analysis.py` have something to
+-- measure.
+--
+-- HOW THE VALUES ARE PRODUCED. There is no random number generator. Each row
+-- number `n` is mixed into two 32-bit hashes (`h`, `h2`) by a quadratic
+-- expression, and each field reads a different digit slice of one of them.
+-- The mixing is what makes the fields look independent of one another; the
+-- determinism is what makes the database reproducible byte for byte.
+--
+-- HONEST DISCLOSURE. `gen_hotel_params` below deliberately encodes a
+-- relationship: hotels with a lower baseline rating are given a higher
+-- cancellation rate. The analysis therefore recovers a pattern that was put
+-- into the data on purpose. It demonstrates the analytical method on a dataset
+-- with known structure. It is not a finding about real hotels.
+-- =============================================================================
+
+-- Per-hotel generator parameters.
+--   rating_base  matches the hand-written review already seeded for that hotel.
+--   cancel_pct   is set to 6 * (6 - rating_base): 30% at 1 star down to 6% at 5.
+--   base_price   matches the hand-written room already seeded for that hotel.
+CREATE TEMP TABLE gen_hotel_params (
+    hid INTEGER PRIMARY KEY, base_price INTEGER, cancel_pct INTEGER, rating_base INTEGER
+);
+INSERT INTO gen_hotel_params (hid, base_price, cancel_pct, rating_base) VALUES
+    (4001, 100, 24, 2),
+    (4002, 110,  6, 5),
+    (4003, 113, 30, 1),
+    (4004, 225, 12, 4),
+    (4005, 215, 24, 2),
+    (4006, 250,  6, 5),
+    (4007, 105, 12, 4),
+    (4008, 112, 18, 3),
+    (4009, 212, 12, 4),
+    (4010, 260, 30, 1);
+
+CREATE TEMP TABLE gen_first_name (i INTEGER PRIMARY KEY, name TEXT);
+INSERT INTO gen_first_name (i, name) VALUES
+    (0,'Amelia'),(1,'Noah'),(2,'Priya'),(3,'Jonas'),(4,'Chloe'),
+    (5,'Marcus'),(6,'Aisha'),(7,'Tobias'),(8,'Elena'),(9,'Rohan'),
+    (10,'Freya'),(11,'Samuel'),(12,'Nadia'),(13,'Oliver'),(14,'Leila'),
+    (15,'Hugo'),(16,'Sofia'),(17,'Callum'),(18,'Mira'),(19,'Declan');
+
+CREATE TEMP TABLE gen_last_name (i INTEGER PRIMARY KEY, name TEXT);
+INSERT INTO gen_last_name (i, name) VALUES
+    (0,'Hartley'),(1,'Okafor'),(2,'Lindqvist'),(3,'Ferreira'),(4,'Nakamura'),
+    (5,'Brennan'),(6,'Kaur'),(7,'Moreau'),(8,'Vasquez'),(9,'Whitfield'),
+    (10,'Adeyemi'),(11,'Sorensen'),(12,'Rahman'),(13,'Costa'),(14,'Delaney'),
+    (15,'Novak'),(16,'Iyer'),(17,'Mbeki'),(18,'Larsen'),(19,'Quinn');
+
+CREATE TEMP TABLE gen_room_type (i INTEGER PRIMARY KEY, name TEXT);
+INSERT INTO gen_room_type (i, name) VALUES
+    (0,'Single'),(1,'Double'),(2,'Triple'),(3,'Studio');
+
+-- One row per generated record, carrying the two mixed hashes.
+CREATE TEMP TABLE gen_row (n INTEGER PRIMARY KEY, h INTEGER, h2 INTEGER);
+INSERT INTO gen_row (n, h, h2)
+WITH RECURSIVE seq(n) AS (
+    SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 240
+)
+-- Each factor is reduced modulo a prime BEFORE multiplying. Without that the
+-- product exceeds the 64-bit signed range, SQLite promotes it to a float, and
+-- the low-order digits every field reads become rounding noise.
+SELECT n,
+       (((n * 2654435761 + 1013904223) % 1000003) * ((n * 40503    + 12345) % 999983)) % 4294967291,
+       (((n * 1103515245 + 12345)      % 1000033) * ((n * 22695477 + 1)     % 999979)) % 4294967291
+  FROM seq;
+
+-- Customers 1011..1250.
+INSERT INTO Customer (CustomerID, First_name, Last_name, Address, Postal_code, Contact_number, Age)
+SELECT 1010 + g.n,
+       f.name,
+       l.name,
+       (1 + (g.h2 / 7) % 250) || ' ' || CASE (g.h2 / 13) % 4
+            WHEN 0 THEN 'Kingsway' WHEN 1 THEN 'Beech Grove'
+            WHEN 2 THEN 'Carlisle Road' ELSE 'Priory Lane' END,
+       'N' || (1 + (g.h / 3) % 9) || ' ' || (1 + (g.h / 19) % 9) || 'AB',
+       '7' || printf('%09d', (g.h2 / 11) % 1000000000),
+       18 + (g.h / 23) % 62
+  FROM gen_row g
+  JOIN gen_first_name f ON f.i = (g.h  / 7)   % 20
+  JOIN gen_last_name  l ON l.i = (g.h2 / 137) % 20;
+
+-- Bookings 1000011..1000250. Duration left NULL; derived below.
+--   hotel        h  % 10          arrival    (h / 20000) % 730 days from 2023-01-01
+--   nights       1 + (h / 1000) % 14         guests     1 + (h2 / 3) % 4
+--   meal         (h2 / 11) % 2               customer   1001 + h2 % 250
+--   cancelled    (h / 10) % 100 < cancel_pct for that hotel
+INSERT INTO Booking (BookingID, Arrival_date, Checkout_date, Cancellation, Duration, Number_of_guests, Meal, CustomerCustomerID, HotelHotelID)
+SELECT 1000010 + g.n,
+       date('2023-01-01', '+' || ((g.h / 20000) % 730) || ' days'),
+       date('2023-01-01', '+' || ((g.h / 20000) % 730 + 1 + (g.h / 1000) % 14) || ' days'),
+       CASE WHEN (g.h / 10) % 100 < p.cancel_pct THEN 1 ELSE 0 END,
+       NULL,
+       1 + (g.h2 / 3) % 4,
+       (g.h2 / 11) % 2,
+       1001 + g.h2 % 250,
+       p.hid
+  FROM gen_row g
+  JOIN gen_hotel_params p ON p.hid = 4001 + g.h % 10;
+
+-- Primary room for every generated booking. Price jitters +/-20 around the
+-- hotel's base rate.
+INSERT INTO Room (Room_number, Room_type, Price, HotelHotelID, BookingBookingID)
+SELECT 10000 + g.n,
+       t.name,
+       p.base_price - 20 + (g.h / 41) % 41,
+       b.HotelHotelID,
+       b.BookingID
+  FROM gen_row g
+  JOIN Booking b ON b.BookingID = 1000010 + g.n
+  JOIN gen_hotel_params p ON p.hid = b.HotelHotelID
+  JOIN gen_room_type t ON t.i = (g.h2 / 17) % 4;
+
+-- Second room on roughly one booking in five (a family taking two rooms).
+-- These are the bookings that expose whether the invoice derivation aggregates.
+INSERT INTO Room (Room_number, Room_type, Price, HotelHotelID, BookingBookingID)
+SELECT 20000 + g.n,
+       t.name,
+       p.base_price - 20 + (g.h2 / 41) % 41,
+       b.HotelHotelID,
+       b.BookingID
+  FROM gen_row g
+  JOIN Booking b ON b.BookingID = 1000010 + g.n
+  JOIN gen_hotel_params p ON p.hid = b.HotelHotelID
+  JOIN gen_room_type t ON t.i = (g.h / 17) % 4
+ WHERE (g.h2 / 23) % 5 = 0;
+
+-- One invoice per booking. Amount left NULL; derived below.
+INSERT INTO Invoice (InvoiceID, BookingBookingID, Amount, Discount, Date, Time)
+SELECT 3000 + g.n,
+       b.BookingID,
+       NULL,
+       (g.h / 31) % 61,
+       b.Checkout_date,
+       printf('%02d:%02d', (g.h2 / 53) % 24, (g.h / 59) % 60)
+  FROM gen_row g
+  JOIN Booking b ON b.BookingID = 1000010 + g.n;
+
+-- Reviews on roughly 70% of bookings that were not cancelled: a guest who
+-- never stayed does not review the stay. Rating is the hotel's baseline
+-- plus noise of -1/0/+1, clamped to the legal 1..5 range.
+INSERT INTO Feedback (FeedbackID, BookingBookingID, Feedback_text, Rating, HotelHotelID)
+SELECT 1000 + g.n,
+       b.BookingID,
+       CASE MAX(1, MIN(5, p.rating_base - 1 + (g.h / 17) % 3))
+            WHEN 1 THEN 'Would not stay here again.'
+            WHEN 2 THEN 'Below what we expected for the price.'
+            WHEN 3 THEN 'Adequate, nothing memorable either way.'
+            WHEN 4 THEN 'Good stay, we would come back.'
+            ELSE 'Excellent room and genuinely helpful staff.' END,
+       MAX(1, MIN(5, p.rating_base - 1 + (g.h / 17) % 3)),
+       b.HotelHotelID
+  FROM gen_row g
+  JOIN Booking b ON b.BookingID = 1000010 + g.n
+  JOIN gen_hotel_params p ON p.hid = b.HotelHotelID
+ WHERE b.Cancellation = 0
+   AND (g.h2 / 29) % 10 < 7;
+
+DROP TABLE gen_row;
+DROP TABLE gen_room_type;
+DROP TABLE gen_last_name;
+DROP TABLE gen_first_name;
+DROP TABLE gen_hotel_params;
+
 -- -----------------------------------------------------------------------------
 -- Derived columns (mirrors the notebook's business logic in pure SQL):
 --   Booking.Duration  = nights between checkout and arrival
---   Invoice.Amount    = Booking.Duration * Room.Price for the matching booking
+--   Invoice.Amount    = Duration * the SUM of the nightly prices of every room
+--                       on that booking
+--
+-- The sum matters. A booking can hold more than one room, and it can hold
+-- none. A correlated subquery without an aggregate returns the first matching
+-- room only, which silently under-bills every multi-room booking, and returns
+-- NULL when a booking has no rooms at all. SUM fixes the first case and
+-- COALESCE fixes the second.
 -- -----------------------------------------------------------------------------
 
+-- The test suite reads the statements between these two markers straight out of
+-- this file and re-runs them, so the regression test exercises the shipped
+-- derivation rather than a copy of it. Keep the markers in place.
+-- >>> BEGIN DERIVATION >>>
 UPDATE Booking
    SET Duration = CAST(julianday(Checkout_date) - julianday(Arrival_date) AS INTEGER);
 
 UPDATE Invoice
-   SET Amount = (
-        SELECT b.Duration * r.Price
+   SET Amount = COALESCE((
+        SELECT SUM(b.Duration * r.Price)
           FROM Booking b
           JOIN Room    r ON r.BookingBookingID = b.BookingID
          WHERE b.BookingID = Invoice.BookingBookingID
-   );
+   ), 0);
+-- <<< END DERIVATION <<<
